@@ -175,7 +175,7 @@ async function generate(promptTokenIds, maxNewTokens = 220) {
     ...pastKV,
   };
 
-  const eosIds = new Set([1, 106]); // <eos>/<end_of_turn> — Gemma tokenizer ids, checked via tokenizer.special_tokens if available
+  const eosIds = new Set([1, 106, 50]); // from generation_config.json's eos_token_id list
   console.log("[debug] starting generation loop, seqLen=", seqLen);
   for (let step = 0; step < maxNewTokens; step++) {
     const t0 = performance.now();
@@ -185,13 +185,23 @@ async function generate(promptTokenIds, maxNewTokens = 220) {
     console.log(`[debug] logits dims:`, logitsTensor?.dims, "type:", logitsTensor?.type);
     const vocabSize = logitsTensor.dims[2];
     const logitsU16 = logitsTensor.data; // Uint16Array raw fp16 bits
-    let bestIdx = 0, bestVal = -Infinity;
+    // top-5 (not just argmax) so we can tell a peaked/confident distribution from a flat/broken one
+    const top5 = [];
     for (let v = 0; v < vocabSize; v++) {
       const val = fp16ToFloat32(logitsU16[v]);
-      if (val > bestVal) { bestVal = val; bestIdx = v; }
+      top5.push([v, val]);
+      if (top5.length > 5) {
+        top5.sort((a, b) => b[1] - a[1]);
+        top5.length = 5;
+      }
     }
-    console.log(`[debug] step ${step}: bestIdx=${bestIdx} bestVal=${bestVal}`);
-    if (eosIds.has(bestIdx)) break;
+    top5.sort((a, b) => b[1] - a[1]);
+    console.log(`[debug] step ${step}: top5 (id,val)=`, JSON.stringify(top5));
+    let bestIdx = top5[0][0], bestVal = top5[0][1];
+    if (eosIds.has(bestIdx)) {
+      console.log(`[debug] step ${step}: predicted EOS as top choice — stopping. generated so far:`, generated.length);
+      break;
+    }
     generated.push(bestIdx);
     allTokenIds.push(bestIdx);
 
@@ -213,10 +223,10 @@ async function generate(promptTokenIds, maxNewTokens = 220) {
     };
 
     // stream partial decode to the UI
-    const partial = tokenizer.decode(generated, { skip_special_tokens: true });
+    const partial = generated.length ? tokenizer.decode(generated, { skip_special_tokens: true }) : "";
     onToken(partial);
   }
-  return tokenizer.decode(generated, { skip_special_tokens: true });
+  return generated.length ? tokenizer.decode(generated, { skip_special_tokens: true }) : "(model produced no tokens — see console for top5 logits)";
 }
 
 let onToken = () => {};
