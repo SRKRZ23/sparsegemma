@@ -88,6 +88,38 @@ function emptyKV(batch = 1) {
   return feeds;
 }
 
+// Idea #5 + biomimicry #1/#6 (immune-memory / synaptic-pruning-by-usage framing): pre-warm the
+// IndexedDB embedding cache with common health-navigation vocabulary at idle time, so the first
+// real message pays less per-token network latency for ordinary words — only genuinely rare/
+// domain-specific tokens still cost a fresh fetch.
+const COMMON_VOCAB_SEED = [
+  "I have been feeling anxious and tired for the past few days.",
+  "There is a mild headache, some nausea, and dizziness since this morning.",
+  "Sore throat, cough, mild fever, runny nose, body aches.",
+  "Chest pain, shortness of breath, rapid heartbeat, sweating.",
+  "Stomach pain, vomiting, diarrhea, loss of appetite, cramping.",
+  "Rash on the skin, itching, swelling, redness, allergic reaction.",
+  "Back pain, joint pain, muscle soreness after exercise, stiffness.",
+  "Feeling dizzy, lightheaded, blurred vision, weakness, fatigue.",
+  "What should I ask my doctor? Is this urgent or can it wait?",
+  "Please explain in simple terms what this symptom usually means.",
+].join(" ");
+
+async function prewarmCommonVocab() {
+  try {
+    const { input_ids } = await tokenizer(COMMON_VOCAB_SEED, { return_tensor: false });
+    const ids = Array.isArray(input_ids[0]) ? input_ids[0] : input_ids;
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 200));
+    idle(async () => {
+      const t0 = performance.now();
+      const r = await embedTokensSparse(ids);
+      console.log(`[prewarm] warmed ${r.uniqueTokens} common tokens (${r.cacheHits} already cached) in ${(performance.now() - t0).toFixed(0)}ms`);
+    });
+  } catch (err) {
+    console.warn("[prewarm] skipped (non-fatal):", err?.message || err);
+  }
+}
+
 async function fetchWithProgress(url, onProgress) {
   const resp = await fetch(url);
   const total = parseInt(resp.headers.get("content-length") || "0", 10);
@@ -138,6 +170,8 @@ async function init() {
     sendBtn.disabled = false;
     loadfill.style.width = "100%";
     addMsg("sys", "Ready. Embeddings for each token you use are fetched individually (a few KB each) instead of downloading the full 1.59GB embedding table.");
+
+    prewarmCommonVocab(); // idle-time background prefetch, never blocks the UI
   } catch (err) {
     statusEl.textContent = "failed to load (needs a WebGPU browser, e.g. recent Chrome/Edge)";
     addMsg("sys", `Load error: ${err?.message || err}`);
