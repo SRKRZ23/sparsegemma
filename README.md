@@ -5,7 +5,9 @@
 > embedding download from hundreds of MB / GB to a few hundred KB, with zero quality loss (byte-identical
 > output, verified against the models' own weights), and it **provably generalizes across the ecosystem**.
 
-### 🔗 [**Live demo**](https://sparsegemma.netlify.app) · [**📊 The Browser-LLM Waste Report** (interactive — audit any model)](https://sparsegemma.netlify.app/waste-report.html) · [**Research & proofs**](research/) · [**Upstream RFC**](research/UPSTREAM_PROPOSAL.md)
+### 🔗 [**Live demo**](https://sparsegemma.netlify.app) · [**📊 Interactive Waste Report**](https://srkrz23.github.io/sparsegemma/) (audit any model live) · [**Research & proofs**](research/) · [**Upstream RFC**](research/UPSTREAM_PROPOSAL.md)
+
+*(GitHub shows `.html` files as source, not rendered pages — open the [interactive report](https://srkrz23.github.io/sparsegemma/) to see the live leaderboard + audit-any-model tool. The full data is also in the table below and in [`research/leaderboard.json`](research/leaderboard.json).)*
 
 [![The Browser-LLM Waste Report](research/assets/waste_report.png)](https://sparsegemma.netlify.app/waste-report.html)
 
