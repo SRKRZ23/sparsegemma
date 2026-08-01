@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Browser-LLM Download Waste Report</title>
+<meta name="description" content="Up to 56% of every popular browser LLM's download is a token-embedding table a conversation barely touches. Measured across 11 models." />
+<meta property="og:title" content="Up to 56% of every browser LLM you download is a table it barely reads" />
+<meta property="og:description" content="Measured across 11 popular models: the token-embedding table is 8.5–56% of the download, and a conversation reads under 0.3% of it. Audit any model live." />
+<meta property="og:image" content="https://sparsegemma.netlify.appwaste_report_preview.png" />
+<meta property="og:url" content="https://srkrz23.github.io/sparsegemma/" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="The Browser-LLM Download Waste Report" />
+<meta name="twitter:description" content="Up to 56% of every browser LLM download is a barely-used embedding table. Measured across 11 models — audit any model live." />
+<meta name="twitter:image" content="https://sparsegemma.netlify.appwaste_report_preview.png" />
+<style>
+  :root{
+    --bg:#0a0e17; --panel:#111726; --ink:#eef2f9; --dim:#93a1bd; --line:#1e2740;
+    --accent:#5b8cff; --hot:#ff5c7a; --warm:#ffb547; --good:#38d39f;
+    color-scheme: dark light;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f6f8fc; --panel:#ffffff; --ink:#0d1526; --dim:#556077; --line:#e4e9f2; --accent:#2f66ff; }
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
+    line-height:1.6; -webkit-font-smoothing:antialiased; }
+  .wrap{ max-width:960px; margin:0 auto; padding:0 20px; }
+  header{ padding:64px 0 28px; }
+  .kicker{ color:var(--accent); font-weight:700; letter-spacing:.08em; text-transform:uppercase; font-size:12.5px; }
+  h1{ font-size:clamp(30px,5.4vw,52px); line-height:1.08; margin:.35em 0 .3em; letter-spacing:-.02em; }
+  h1 .hl{ color:var(--hot); }
+  .sub{ color:var(--dim); font-size:clamp(15px,2.2vw,19px); max-width:680px; }
+  .bignum{ display:flex; gap:28px; flex-wrap:wrap; margin:34px 0 8px; }
+  .bignum div{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px 20px; flex:1; min-width:150px; }
+  .bignum b{ display:block; font-size:clamp(26px,4.6vw,40px); line-height:1; letter-spacing:-.02em; }
+  .bignum span{ color:var(--dim); font-size:13px; }
+  section{ padding:26px 0; border-top:1px solid var(--line); }
+  h2{ font-size:22px; margin:.2em 0 .6em; letter-spacing:-.01em; }
+  p{ color:var(--ink); }
+  .muted{ color:var(--dim); }
+  /* leaderboard */
+  .row{ display:grid; grid-template-columns:180px 1fr 64px; align-items:center; gap:12px; margin:9px 0; }
+  .row .name{ font-size:13.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row .name small{ color:var(--dim); font-weight:400; }
+  .bar{ height:22px; background:var(--line); border-radius:6px; overflow:hidden; position:relative; }
+  .bar > i{ display:block; height:100%; width:0; border-radius:6px; transition:width 1.1s cubic-bezier(.2,.8,.2,1); }
+  .pct{ text-align:right; font-variant-numeric:tabular-nums; font-weight:700; font-size:14px; }
+  @media(max-width:560px){ .row{ grid-template-columns:120px 1fr 52px; } .row .name small{ display:none; } }
+  .legend{ color:var(--dim); font-size:12.5px; margin-top:14px; }
+  .cta{ display:inline-block; margin:6px 10px 6px 0; padding:11px 18px; border-radius:10px;
+    background:var(--accent); color:#fff; font-weight:700; text-decoration:none; font-size:14.5px; }
+  .cta.ghost{ background:transparent; border:1px solid var(--line); color:var(--ink); }
+  .note{ background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--warm);
+    border-radius:10px; padding:14px 16px; font-size:14px; }
+  code{ background:var(--line); padding:1px 6px; border-radius:5px; font-size:.9em; }
+  footer{ padding:40px 0 60px; color:var(--dim); font-size:13px; }
+  a{ color:var(--accent); }
+  .flip{ font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="kicker">Measured across 11 popular models · reproducible</div>
+    <h1>Up to <span class="hl">56%</span> of every browser LLM you download<br>is a table it barely reads.</h1>
+    <p class="sub">Small language models now run entirely in your browser. But a big slice of every
+      download is the <b>token-embedding table</b> — and a real conversation touches under <b>0.3%</b> of
+      its rows. We measured it across the most popular models. Then we built the fix.</p>
+    <div class="bignum">
+      <div><b class="flip" id="avg">38.5%</b><span>average of the download that is the embedding table (11 models)</span></div>
+      <div><b>&lt;0.3%</b><span>of its rows a typical conversation actually reads (Heaps' law, β≈0.75)</span></div>
+      <div><b>0</b><span>quality lost — the fix is byte-identical, verified against the model's own weights</span></div>
+    </div>
+  </header>
+
+  <section>
+    <h2>The waste leaderboard</h2>
+    <p class="muted">Share of the total model download (q4f16 ONNX, browser build) that is the
+      token-embedding table. Bigger bar = more of your download is a lookup table you barely use.</p>
+    <div id="board"></div>
+    <div class="legend">Measured from each model's <code>config.json</code> (vocab × hidden × dtype) and
+      ONNX file sizes; validated byte-exact against three models loaded in full. Reproduce with
+      <code>research/survey/leaderboard.py</code>.</div>
+  </section>
+
+  <section>
+    <h2>Audit any model yourself</h2>
+    <p class="muted">Paste a Hugging Face ONNX repo (or pick one). Your browser fetches its
+      <code>config.json</code> + file sizes directly from HF and computes the embedding share live —
+      nothing hits our servers.</p>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 4px">
+      <input id="repo" placeholder="onnx-community/Qwen2.5-0.5B-Instruct"
+        style="flex:1; min-width:240px; padding:11px 13px; border-radius:10px; border:1px solid var(--line);
+        background:var(--panel); color:var(--ink); font-size:14px; font-family:inherit" />
+      <button class="cta" id="auditBtn" style="border:none; cursor:pointer">Audit</button>
+    </div>
+    <div style="margin:6px 0 10px; font-size:12.5px" class="muted">
+      Try:
+      <a href="#" data-r="onnx-community/Llama-3.2-1B-Instruct">Llama-3.2-1B</a> ·
+      <a href="#" data-r="onnx-community/Qwen3-0.6B-ONNX">Qwen3-0.6B</a> ·
+      <a href="#" data-r="HuggingFaceTB/SmolLM2-1.7B-Instruct">SmolLM2-1.7B</a> ·
+      <a href="#" data-r="onnx-community/gemma-3-1b-it-ONNX">gemma-3-1b</a>
+    </div>
+    <div id="auditOut" style="min-height:8px"></div>
+  </section>
+
+  <section>
+    <h2>Why this happens — and why it's avoidable</h2>
+    <p>Language is <b>heavy-tailed</b> (Zipf) and its vocabulary grows <b>sublinearly</b> with length
+      (Heaps' law — we measure β≈0.75, R²=0.996 on 714k real tokens). So a whole conversation only ever
+      needs a few hundred of a model's 100k–260k embedding rows. Yet every serving stack —
+      Transformers.js, onnxruntime-web, llama.cpp, Google's own LiteRT-LM — downloads or memory-maps the
+      <b>entire</b> table before the first token.</p>
+    <p><b>SparseGemma</b> fetches only the byte ranges for the tokens actually used (HTTP Range requests),
+      caches them across sessions, and — using the draft model already run for speculative decoding as a
+      free <i>prefetch oracle</i> — hides the latency. On the hardest case (Gemma-4-E2B's 1.59 GB table)
+      the live demo fetches hundreds of KB instead of gigabytes, with byte-identical output.</p>
+    <div class="note"><b>Honest caveat (we checked so you don't have to be surprised):</b> in most of
+      these models the embedding is <i>weight-tied</i> to the output head, so exhaustive full-vocabulary
+      argmax still needs the whole table for the <i>output</i> projection. The clean win is on the input
+      side universally, and on the output side too for separate-head exports or draft-guided / top-k
+      generation. Full trace + math in the research folder — nothing swept under the rug.</div>
+  </section>
+
+  <section>
+    <h2>See it, read it, build on it</h2>
+    <a class="cta" href="https://sparsegemma.netlify.app">▶ Live demo (WebGPU)</a>
+    <a class="cta ghost" href="https://github.com/SRKRZ23/sparsegemma">GitHub — code + proofs</a>
+    <a class="cta ghost" href="https://github.com/SRKRZ23/sparsegemma/blob/master/research/UPSTREAM_PROPOSAL.md">Upstream RFC</a>
+    <p class="muted" style="margin-top:14px">Open source (MIT). The technique should be free and
+      everywhere — that's the point.</p>
+  </section>
+
+  <footer>
+    Built by Sardor Razikov. Every number here is measured and reproducible; theory, proofs, and an
+    honesty ledger live in the repo's <code>research/</code> folder.
+  </footer>
+</div>
+
+<script>
+const DATA = [
+  {m:"Qwen2.5-0.5B", t:483, p:56.4},{m:"Qwen3-0.6B", t:570, p:54.6},
+  {m:"Qwen2.5-Coder-0.5B", t:555, p:49.1},{m:"Llama-3.2-1B", t:1090, p:48.2},
+  {m:"Qwen3-1.7B", t:1426, p:43.6},{m:"Qwen2.5-1.5B", t:1222, p:38.2},
+  {m:"Llama-3.2-3B", t:2096, p:37.6},{m:"SmolLM2-360M", t:273, p:34.6},
+  {m:"gemma-3-270m", t:273, p:34.4},{m:"SmolLM2-1.7B", t:1109, p:18.2},
+  {m:"Phi-3.5-mini", t:2318, p:8.5},
+];
+function color(p){ return p>=50?"var(--hot)":p>=33?"var(--warm)":"var(--good)"; }
+const board=document.getElementById("board");
+DATA.forEach((d,i)=>{
+  const row=document.createElement("div"); row.className="row";
+  row.innerHTML=`<div class="name">${d.m} <small>${d.t} MB</small></div>
+    <div class="bar"><i data-w="${d.p}" style="background:${color(d.p)}"></i></div>
+    <div class="pct" style="color:${color(d.p)}">${d.p}%</div>`;
+  board.appendChild(row);
+});
+// animate bars growing in on load (static values are already correct without JS)
+requestAnimationFrame(()=>{
+  document.querySelectorAll(".bar > i").forEach(el=>{ el.style.width=el.dataset.w+"%"; });
+});
+
+// ---- live "audit any model" tool (all client-side; fetches straight from Hugging Face) ----
+const HF="https://huggingface.co/";
+async function sizeOf(url){ // total bytes via Range 0-0 -> Content-Range, else content-length
+  try{
+    const r=await fetch(url,{headers:{Range:"bytes=0-0"}});
+    const cr=r.headers.get("content-range");
+    if(cr&&cr.includes("/")) return parseInt(cr.split("/").pop(),10);
+    const cl=r.headers.get("content-length"); return cl?parseInt(cl,10):0;
+  }catch(e){ return 0; }
+}
+async function audit(repo){
+  const out=document.getElementById("auditOut");
+  repo=repo.trim().replace(/^https?:\/\/huggingface\.co\//,"").replace(/\/$/,"");
+  if(!repo){ out.innerHTML=""; return; }
+  out.innerHTML=`<div class="muted" style="font-size:14px">Auditing <b>${repo}</b>…</div>`;
+  try{
+    const cfg=await (await fetch(HF+repo+"/resolve/main/config.json")).json();
+    const vocab=cfg.vocab_size, hidden=cfg.hidden_size, tied=cfg.tie_word_embeddings;
+    if(!vocab||!hidden){ throw new Error("no vocab_size/hidden_size in config.json"); }
+    const base=HF+repo+"/resolve/main/onnx/model_q4f16.onnx";
+    let graph=await sizeOf(base), data=await sizeOf(base+"_data");
+    const total=data?graph+data:graph;
+    if(!total){ throw new Error("couldn't read onnx/model_q4f16.onnx size (does this repo have that file?)"); }
+    const embBytes=vocab*hidden*2; // assumes fp16 embedding (the common case for q4f16 exports)
+    const pct=Math.min(99,100*embBytes/total);
+    const col=pct>=50?"var(--hot)":pct>=33?"var(--warm)":"var(--good)";
+    out.innerHTML=`<div class="row" style="grid-template-columns:1fr 64px; margin-top:4px">
+        <div class="bar"><i style="width:0;background:${col}"></i></div>
+        <div class="pct" style="color:${col}">${pct.toFixed(1)}%</div></div>
+      <div class="muted" style="font-size:13px">
+        <b>${repo}</b> — vocab ${vocab.toLocaleString()} × hidden ${hidden} ⇒ embedding ≈
+        ${(embBytes/1e6).toFixed(0)} MB of a ${(total/1e6).toFixed(0)} MB download.
+        Output head: <b>${tied?"tied":"separate"}</b>.
+        <i>Estimate assumes an fp16 embedding (typical for q4f16 exports); quantized-embedding models
+        will be lower.</i></div>`;
+    requestAnimationFrame(()=>{ out.querySelector("i").style.width=pct+"%"; });
+  }catch(e){
+    out.innerHTML=`<div class="note" style="border-left-color:var(--hot)">Couldn't audit
+      <b>${repo}</b>: ${e.message}. Needs a public HF repo with <code>config.json</code> and
+      <code>onnx/model_q4f16.onnx</code>.</div>`;
+  }
+}
+document.getElementById("auditBtn").addEventListener("click",()=>audit(document.getElementById("repo").value));
+document.getElementById("repo").addEventListener("keydown",e=>{ if(e.key==="Enter") audit(e.target.value); });
+document.querySelectorAll("[data-r]").forEach(a=>a.addEventListener("click",e=>{
+  e.preventDefault(); const r=a.dataset.r; document.getElementById("repo").value=r; audit(r);
+}));
+</script>
+</body>
+</html>

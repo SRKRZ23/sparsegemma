@@ -9,14 +9,28 @@
 
 [![The Browser-LLM Waste Report](research/assets/waste_report.png)](https://sparsegemma.netlify.app/waste-report.html)
 
-Measured across 11 of the most-downloaded browser LLMs (`research/GENERALIZATION.md`,
-`research/leaderboard.json` — **average 38.5%, up to 56.4%**):
+### The waste leaderboard (full data)
 
-| Model | Embedding = % of download | | Model | Embedding = % of download |
-|---|---|---|---|---|
-| Qwen2.5-0.5B | **56.4%** (272 MB, fp16!) | | Llama-3.2-1B | 48.2% (525 MB) |
-| Qwen3-0.6B | 54.6% (311 MB) | | SmolLM2-360M | 34.6% (94 MB) |
-| Qwen2.5-Coder-0.5B | 49.1% (272 MB) | | Gemma-4-E2B | ~51% (1.59 GB) |
+Share of each model's total download (q4f16 ONNX browser build) that is the token-embedding table.
+Measured from each model's `config.json` (vocab × hidden × dtype) + ONNX file sizes; validated byte-exact
+against three models loaded in full. **Average 38.5%, up to 56.4%.** Reproduce:
+[`research/survey/leaderboard.py`](research/survey/leaderboard.py) → [`research/leaderboard.json`](research/leaderboard.json).
+Audit any model live at the [interactive report](https://sparsegemma.netlify.app/waste-report.html).
+
+| # | Model | Total download | Embedding table | **% of download** | Output head |
+|--:|---|--:|--:|--:|:--:|
+| 1 | Qwen2.5-0.5B-Instruct | 483 MB | 272 MB (fp16) | **56.4%** | tied |
+| 2 | Qwen3-0.6B | 570 MB | 311 MB (fp16) | **54.6%** | tied |
+| 3 | Qwen2.5-Coder-0.5B | 555 MB | 272 MB (fp16) | **49.1%** | tied |
+| 4 | Llama-3.2-1B-Instruct | 1090 MB | 525 MB (fp16) | **48.2%** | tied |
+| 5 | Qwen3-1.7B | 1426 MB | 622 MB (fp16) | 43.6% | tied |
+| 6 | Qwen2.5-1.5B-Instruct | 1222 MB | 467 MB (fp16) | 38.2% | tied |
+| 7 | Llama-3.2-3B-Instruct | 2096 MB | 788 MB (fp16) | 37.6% | tied |
+| 8 | SmolLM2-360M-Instruct | 273 MB | 94 MB (fp16) | 34.6% | tied |
+| 9 | gemma-3-270m-it | 273 MB | 84 MB (quant) | 34.4% | tied |
+| 10 | SmolLM2-1.7B-Instruct | 1109 MB | 201 MB (fp16) | 18.2% | tied |
+| 11 | Phi-3.5-mini-instruct | 2318 MB | 197 MB | 8.5% | separate |
+| — | Gemma-4-E2B-it *(the live demo)* | ~3.1 GB | 1.59 GB | ~51% | separate |
 
 This is not a hack on one model — it's a fix for a **systematic inefficiency across the whole browser-LLM
 ecosystem**, demonstrated end-to-end on the hardest case (Gemma-4-E2B's 1.59 GB table) and proven
