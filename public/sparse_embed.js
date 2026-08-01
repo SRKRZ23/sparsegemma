@@ -73,9 +73,19 @@ function dequantizeRow(quantBuf, scalesBuf, zpBuf, globalScale) {
   }
   const zp = unpackNibbles(new Uint8Array(zpBuf));
   const out = new Float32Array(quant.length);
-  for (let i = 0; i < quant.length; i++) {
-    const group = (i / BLOCK_SIZE) | 0;
-    out[i] = (quant[i] - zp[group]) * scales[group] * globalScale;
+  // LUT-based dequant (T-MAC's core insight, arXiv:2407.00088): a 4-bit value has only 16
+  // possible codes, but each group has BLOCK_SIZE=32 elements — so precomputing the 16 possible
+  // dequantized values per group ONCE and looking them up is strictly cheaper (16 multiplies +
+  // 32 lookups) than recomputing (value-zp)*scale for all 32 elements individually.
+  const lut = new Float32Array(16);
+  const numGroups = scales.length;
+  for (let group = 0; group < numGroups; group++) {
+    const s = scales[group] * globalScale;
+    const z = zp[group];
+    for (let v = 0; v < 16; v++) lut[v] = (v - z) * s;
+    const start = group * BLOCK_SIZE;
+    const end = Math.min(start + BLOCK_SIZE, quant.length);
+    for (let i = start; i < end; i++) out[i] = lut[quant[i]];
   }
   return out;
 }
