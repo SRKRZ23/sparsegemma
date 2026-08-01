@@ -216,16 +216,17 @@ async function generate(promptTokenIds, maxNewTokens = 220) {
     const output = await session.run(feeds);
     console.log(`[debug] step ${step}: session.run took ${(performance.now() - t0).toFixed(0)}ms, output keys:`, Object.keys(output));
     const logitsTensor = output.logits; // [1, 1, vocab] float16
-    console.log(`[debug] logits dims:`, logitsTensor?.dims, "type:", logitsTensor?.type);
     const vocabSize = logitsTensor.dims[2];
-    const logitsU16 = logitsTensor.data; // Uint16Array raw fp16 bits (assumed — verifying below)
-    if (step === 0) {
-      console.log(`[debug] logitsU16 constructor:`, logitsU16?.constructor?.name, "raw first 5 values:", Array.from(logitsU16.slice(0, 5)));
-    }
-    // top-5 (not just argmax) so we can tell a peaked/confident distribution from a flat/broken one
+    // logitsTensor.data is a native Float16Array here — already real decoded float values, NOT
+    // raw fp16 bit patterns. (Confirmed via diagnostic: values like -12.43/13.42/2.76 are sane
+    // transformer logit magnitudes, not raw uint16 — running fp16ToFloat32 on these AGAIN was
+    // the actual bug: it reinterpreted an already-correct float as if it were a bit pattern,
+    // producing near-zero garbage. fp16ToFloat32 is still needed for sparse_embed.js's raw
+    // Uint8Array-backed scale bytes, which really are raw bits — just not here.)
+    const logits = logitsTensor.data;
     const top5 = [];
     for (let v = 0; v < vocabSize; v++) {
-      const val = fp16ToFloat32(logitsU16[v]);
+      const val = logits[v];
       top5.push([v, val]);
       if (top5.length > 5) {
         top5.sort((a, b) => b[1] - a[1]);
