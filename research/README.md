@@ -4,15 +4,16 @@ Empirical + theoretical companion to SparseGemma. **Everything here is measured 
 the exact Gemma tokenizer; every claim states its assumptions.** See `THEORY.md` for the full write-up
 with proofs and the honesty ledger.
 
-## Headline results (measured, real corpus, 164,281 tokens, exact Gemma tokenizer)
+## Headline results (measured, real corpus, 62 documents / 714,502 tokens, exact Gemma tokenizer)
 
 | Result | Value | Meaning for SparseGemma |
 |---|---|---|
-| **Heaps' law** β | **0.741** (R²=0.999) | Embedding traffic is *sublinear* in conversation length — a 1000-token chat touches ~412 distinct tokens ⇒ **2.5 MB fetched, 0.16% of the 1.59 GB table** |
-| **Zipf** s | **1.086** | Textbook heavy tail; only **6.6%** of the 262k vocab appears at all |
-| **Che ≈ IRM** | within **0.012** | Classical closed-form cache model validated against its own assumptions (shuffle control) |
-| **Locality gain** | **+0.15** hit rate | Real streams beat the frequency-only IRM prediction — genuine temporal locality LRU exploits; **a 256-row (~1.5 MB) cache already hits 61%** |
+| **Heaps' law** β (per-document) | **0.746 ± 0.041** (R²=0.996, n=62) | Embedding traffic is *sublinear* in conversation length — a 1000-token chat touches a few hundred distinct tokens ⇒ **~2–3 MB fetched, ≪1% of the 1.59 GB table** |
+| **Zipf** s | **1.146** | Textbook heavy tail (s≈1) |
+| **Che ≈ IRM** | within **0.004** | Classical closed-form cache model validated against its own assumptions (shuffle control) |
+| **Locality gain** | **+0.17** hit rate | Real streams beat the frequency-only IRM prediction — genuine temporal locality LRU exploits; **a 256-row (~1.5 MB) cache already hits 61%** |
 | **Draft acceptance** β_acc | **≈0.40** (preliminary) | Speculative-decoding acceptance rate *equals* the top-1 prefetch cold-miss complement (Theorem 2) — the draft model is a free prefetch oracle |
+| **Ecosystem survey** | **31–56%** of download | The embedding table is 31–56% of every popular browser LLM's download (see `GENERALIZATION.md`) |
 
 ## The one genuinely new idea (Theorem 2)
 The small draft model we already run for speculative decoding produces, at zero extra compute, a next-

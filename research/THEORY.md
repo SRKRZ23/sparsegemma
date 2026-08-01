@@ -28,13 +28,13 @@ $B(n)/n = RK\,n^{\beta-1}\to 0$ as $n\to\infty$.*
 *Proof.* Immediate from $\beta<1$: $n^{\beta}/n = n^{\beta-1}\to 0$. $\qquad\blacksquare$
 
 The content is not the algebra — it is that **Heaps' law is measured to hold** on real diverse text
-tokenized with the exact Gemma tokenizer (Section 7: **measured $\beta=0.741$, $R^2=0.999$** on a
-164k-token pooled stream; per-document $\beta=0.726\pm0.065$), so the sublinearity is an empirical
-property, not an assumption. Consequence: doubling a conversation's length multiplies embedding traffic
-by only $2^{\beta}=2^{0.741}\approx 1.67$, not by 2. Concretely, at the measured $(K,\beta)=(2.46,0.741)$
-a **1000-token conversation touches $\approx 412$ distinct tokens $\Rightarrow$ 2.50 MB fetched = 0.157%
-of the 1.59 GB table**; a 200-token prompt, 0.76 MB (0.048%). The full table is the $n\to\infty$
-asymptote essentially never approached in practice.
+tokenized with the exact Gemma tokenizer (Section 7: **per-document $\beta=0.746\pm0.041$, mean
+$R^2=0.996$** over 62 documents / 714k tokens — the within-a-single-conversation law), so the sublinearity
+is an empirical property, not an assumption. Consequence: doubling a conversation's length multiplies
+embedding traffic by only $2^{\beta}=2^{0.746}\approx 1.68$, not by 2. Representatively (a typical
+single-document fit), a **1000-token conversation touches a few hundred distinct tokens $\Rightarrow$ on
+the order of ~2–3 MB fetched $\ll$ 1% of the 1.59 GB table**; a short prompt, under 1 MB. The full table
+is the $n\to\infty$ asymptote essentially never approached in practice.
 
 ## 3. Theorem 2 — Draft-model acceptance rate *equals* prefetch cold-miss rate (novel)
 
@@ -112,34 +112,34 @@ measured acceptance rate $\beta_{\mathrm{acc}}$ fully parameterizes the deployed
 
 ## 7. Measured results (real corpus, exact Gemma tokenizer)
 
-Corpus: 12 diverse full-length documents (encyclopedic prose across science, history, medicine, tech,
-arts, geography — deliberately multi-domain), **164,281 tokens**, tokenized with the exact Gemma
-tokenizer (`tokenizer.json`, vocab 262,144). Reproducible via `fetch_wikipedia.py` + `measure.py`;
-raw numbers in `results.json`. *(Corpus is real human prose rather than chat: the linguistic laws are
-text-type-robust, and prose is the harder, richer-vocabulary case — see honesty ledger. LLM-chat
-cross-check in progress.)*
+Corpus: **62 diverse full-length documents** (encyclopedic prose across science, history, medicine, tech,
+arts, geography, sport — deliberately multi-domain), **714,502 tokens**, tokenized with the exact Gemma
+tokenizer (`tokenizer.json`, vocab 262,144). Reproducible via `fetch_wikipedia.py` + `measure.py`; raw
+numbers in `results.json`. *(Real human prose rather than chat: the laws are text-type-robust and prose is
+the harder, richer-vocabulary case — see honesty ledger. An LLM-chat cross-check was attempted but the
+free-tier generation API was rate-exhausted; not claimed.)*
 
 | Quantity | Measured | Notes |
 |---|---|---|
-| Heaps $\beta$ (pooled) | **0.741** ($R^2=0.999$) | $K=2.46$; sublinear ($\beta<1$) |
-| Heaps $\beta$ (per-doc) | $0.726 \pm 0.065$ | mean $R^2=0.994$ |
-| Zipf $s$ | **1.086** | textbook Zipf ($s\approx1$) |
-| Distinct tokens / vocab | 17,350 / 262,144 = **6.6%** | over 164k tokens |
+| Heaps $\beta$ (**per-document**, session-relevant) | **$0.746 \pm 0.041$** | mean $R^2=0.996$ over 62 docs — the within-a-single-conversation law |
+| Heaps $\beta$ (pooled 62-doc concat) | 0.638 ($R^2=0.989$) | lower because concatenating *diverse* topics exhausts shared vocab then adds topic-specific tails; not the per-session quantity |
+| Zipf $s$ | **1.146** | textbook Zipf ($s\approx1$) |
+| Distinct tokens / vocab | 37,394 / 262,144 = **14.3%** | over 714k tokens (grows with corpus size, as expected) |
 
 **LRU hit rate** — real ordered stream vs. IRM-shuffled (frequencies preserved, locality destroyed) vs.
 Che closed form:
 
 | cache $C$ | real | IRM-shuffled | Che | $\lvert$Che$-$IRM$\rvert$ | locality gain (real$-$IRM) |
 |---|---|---|---|---|---|
-| 64   | 0.426 | 0.276 | 0.276 | 0.000 | **+0.150** |
-| 128  | 0.524 | 0.361 | 0.361 | 0.000 | **+0.163** |
-| 256  | 0.608 | 0.440 | 0.442 | 0.002 | **+0.168** |
-| 512  | 0.683 | 0.519 | 0.523 | 0.004 | **+0.164** |
-| 1024 | 0.750 | 0.600 | 0.606 | 0.006 | **+0.150** |
-| 2048 | 0.806 | 0.687 | 0.699 | 0.012 | **+0.119** |
+| 64   | 0.430 | 0.280 | 0.281 | 0.000 | **+0.149** |
+| 128  | 0.529 | 0.363 | 0.363 | 0.000 | **+0.166** |
+| 256  | 0.614 | 0.438 | 0.438 | 0.000 | **+0.176** |
+| 512  | 0.688 | 0.508 | 0.509 | 0.001 | **+0.180** |
+| 1024 | 0.751 | 0.580 | 0.581 | 0.002 | **+0.172** |
+| 2048 | 0.805 | 0.661 | 0.664 | 0.004 | **+0.144** |
 
-Che reproduces the IRM baseline to $\le0.012$ (implementation validated); the real stream exceeds it by
-a stable ~+0.15 (temporal locality, Corollary 3.1). A **256-row cache already yields 61% hit rate** on
+Che reproduces the IRM baseline to $\le0.004$ (implementation validated); the real stream exceeds it by
+a stable ~+0.17 (temporal locality, Corollary 3.1). A **256-row cache already yields 61% hit rate** on
 real streams — with 6068 bytes/row that cache is ~1.5 MB of RAM.
 
 **Draft acceptance rate** $\beta_{\mathrm{acc}}$ (Theorem 2): preliminary, measured on one real
@@ -159,8 +159,8 @@ next measurement.
 - **Conjectured / heuristic / to-strengthen:** the independence estimate $\mu\approx(1-h_C)(1-\rho_k)$;
   that $\beta,s$ measured on multi-domain **prose** transfer to **chat** streams (prose is the
   richer-vocabulary, harder case, so its $\beta$ likely *upper*-bounds chat's — chat should be even more
-  sublinear — but this is argued, not yet measured; LLM-chat corpus generation was in progress); the
-  corpus-scale $\beta_{\mathrm{acc}}$.
+  sublinear — but this is argued, not measured: the LLM-chat generation ran into free-tier API exhaustion
+  and produced no corpus, so no chat number is claimed); the corpus-scale $\beta_{\mathrm{acc}}$.
 
 ## References
 Heaps 1978; Herdan 1960; Zipf 1949; Mandelbrot 1953; Che, Tung & Wang, *IEEE JSAC* 2002; Fricker, Robert &

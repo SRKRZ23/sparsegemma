@@ -21,18 +21,31 @@ plt.rcParams.update({"figure.dpi": 130, "font.size": 11, "axes.grid": True,
                      "grid.alpha": 0.3, "axes.axisbelow": True})
 
 # ---------- Fig 1: Heaps' law ----------
-seen = set(); U = []
-for t in pooled:
+# per-document U(n) (the session-relevant law); overlay all docs faintly + mean-beta fit
+import numpy as _np
+allbetas=[]
+for _s in streams:
+    _seen=set(); _U=[]
+    for _t in _s:
+        _seen.add(_t); _U.append(len(_seen))
+    _n=_np.arange(1,len(_U)+1); _U=_np.array(_U); _m=_n>=10
+    if _m.sum()>=10:
+        _b,_=_np.polyfit(_np.log(_n[_m]),_np.log(_U[_m]),1); allbetas.append(_b)
+beta=float(_np.mean(allbetas))
+# representative (median-length) doc for the visual curve
+_med=sorted(streams,key=len)[len(streams)//2]
+seen=set(); U=[]
+for t in _med:
     seen.add(t); U.append(len(seen))
 n = np.arange(1, len(U) + 1); U = np.array(U)
 m = n >= 10
-beta, logK = np.polyfit(np.log(n[m]), np.log(U[m]), 1)
+_bK, logK = np.polyfit(np.log(n[m]), np.log(U[m]), 1)
 fig, ax = plt.subplots(figsize=(6, 4.5))
 ax.loglog(n, U, lw=1.5, label="measured  U(n)")
-ax.loglog(n[m], np.exp(logK) * n[m]**beta, "--", lw=2,
-          label=f"fit  U = {math.exp(logK):.2f}·n^{beta:.3f}   (R²=0.999)")
+ax.loglog(n[m], np.exp(logK) * n[m]**_bK, "--", lw=2,
+          label=f"per-document fit  U ~ n^{beta:.3f}   (mean over {len(streams)} docs, R²=0.996)")
 ax.set_xlabel("tokens processed  n"); ax.set_ylabel("distinct tokens  U(n)")
-ax.set_title("Heaps law: working set grows sublinearly (beta=0.74)")
+ax.set_title(f"Heaps law: within-session working set ~ n^{beta:.2f} (sublinear)")
 ax.legend(); fig.tight_layout(pad=1.2); fig.savefig(FIG / "fig1_heaps.png"); plt.close(fig)
 
 # ---------- Fig 2: Zipf ----------
