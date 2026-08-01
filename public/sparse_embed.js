@@ -34,6 +34,41 @@ const PLE_DIM_TOTAL = 8960; // 35 layers x 256
 const NUM_LAYERS = 35;
 const PLE_LAYER_DIM = 256;
 
+// Persistent cross-session cache (biomimicry: "myelination"/immune-memory-cell framing — once a
+// token's embedding is fetched once on this device, it never needs a network round-trip again,
+// on this page load OR any future visit). IndexedDB, not just an in-memory Map, so it survives
+// tab close/reload.
+const DB_NAME = "pockettriage-embeddings";
+const STORE = "tokens";
+let dbPromise = null;
+function openDB() {
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  return dbPromise;
+}
+async function idbGet(tokenId) {
+  try {
+    const db = await openDB();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(STORE, "readonly").objectStore(STORE).get(tokenId);
+      tx.onsuccess = () => resolve(tx.result || null);
+      tx.onerror = () => resolve(null);
+    });
+  } catch { return null; }
+}
+async function idbPut(tokenId, value) {
+  try {
+    const db = await openDB();
+    db.transaction(STORE, "readwrite").objectStore(STORE).put(value, tokenId);
+  } catch { /* best-effort cache; a write failure shouldn't break generation */ }
+}
+
 // Fetch a single byte range. Returns an ArrayBuffer.
 //
 // NOTE: cannot cache/reuse a resolved CDN URL across different ranges — verified via direct
@@ -102,7 +137,12 @@ function fp16ToFloat32(h) {
 }
 
 // Fetch + dequantize the main-table and per-layer-table rows for one token id, in parallel.
+// Checks the persistent IndexedDB cache first — a token fetched once (this session or a past
+// one) never costs a network round-trip again.
 async function fetchTokenEmbedding(tokenId) {
+  const cached = await idbGet(tokenId);
+  if (cached) return { mainEmb: new Float32Array(cached.mainEmb), perLayerFlat: new Float32Array(cached.perLayerFlat), fromCache: true };
+
   const [mq, ms, mz, pq, ps, pz] = await Promise.all([
     fetchRange(MAIN.quant.offset + tokenId * MAIN.quant.rowBytes, MAIN.quant.rowBytes),
     fetchRange(MAIN.scales.offset + tokenId * MAIN.scales.rowBytes, MAIN.scales.rowBytes),
@@ -113,6 +153,7 @@ async function fetchTokenEmbedding(tokenId) {
   ]);
   const mainEmb = dequantizeRow(mq, ms, mz, MAIN_GLOBAL_SCALE); // length 1536
   const perLayerFlat = dequantizeRow(pq, ps, pz, PLE_GLOBAL_SCALE); // length 8960 -> [35,256]
+  idbPut(tokenId, { mainEmb: mainEmb.buffer, perLayerFlat: perLayerFlat.buffer }); // fire-and-forget
   return { mainEmb, perLayerFlat };
 }
 
@@ -140,16 +181,19 @@ export async function embedTokensSparse(tokenIds) {
   const seqLen = tokenIds.length;
   const inputsEmbeds = new Float32Array(seqLen * MAIN_DIM);
   const perLayerInputs = new Float32Array(seqLen * PLE_DIM_TOTAL);
+  let cacheHits = 0;
   tokenIds.forEach((t, i) => {
     const { mainEmb, perLayerFlat } = cache.get(t);
     inputsEmbeds.set(mainEmb, i * MAIN_DIM);
     perLayerInputs.set(perLayerFlat, i * PLE_DIM_TOTAL);
   });
+  for (const v of cache.values()) if (v.fromCache) cacheHits++;
   return {
     inputsEmbeds, // Float32Array, reshape to [1, seqLen, 1536]
     perLayerInputs, // Float32Array, reshape to [1, seqLen, 35, 256]
-    bytesFetched: unique.length * (768 + 96 + 24 + 4480 + 560 + 140),
+    bytesFetched: (unique.length - cacheHits) * (768 + 96 + 24 + 4480 + 560 + 140),
     uniqueTokens: unique.length,
+    cacheHits,
   };
 }
 
