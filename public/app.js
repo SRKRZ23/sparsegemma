@@ -182,6 +182,7 @@ async function init() {
       if (t) statusEl.title = `loading speculative draft model… ${(n / 1e6).toFixed(0)}MB / ${(t / 1e6).toFixed(0)}MB`;
     }).then(() => {
       draftReady = true;
+      window.draftReady = true; // exposed for automated testing
       addMsg("sys", "Speculative decoding ready (draft model: Gemma 3 270M) — generation should now be faster.");
     }).catch((err) => {
       console.warn("[draft] failed to load, falling back to plain greedy decode:", err?.message || err);
