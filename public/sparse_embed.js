@@ -65,7 +65,15 @@ async function idbGet(tokenId) {
 async function idbPut(tokenId, value) {
   try {
     const db = await openDB();
-    db.transaction(STORE, "readwrite").objectStore(STORE).put(value, tokenId);
+    await new Promise((resolve) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).put(value, tokenId);
+      // wait for the transaction to actually COMMIT — a fire-and-forget put() can be lost if the
+      // page/test closes before the transaction flushes, which is exactly what happened in testing
+      // (a re-run showed only 3/92 tokens still cached from the prior run).
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
   } catch { /* best-effort cache; a write failure shouldn't break generation */ }
 }
 
