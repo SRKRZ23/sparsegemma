@@ -78,6 +78,27 @@
   </section>
 
   <section>
+    <h2>Audit any model yourself</h2>
+    <p class="muted">Paste a Hugging Face ONNX repo (or pick one). Your browser fetches its
+      <code>config.json</code> + file sizes directly from HF and computes the embedding share live —
+      nothing hits our servers.</p>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 4px">
+      <input id="repo" placeholder="onnx-community/Qwen2.5-0.5B-Instruct"
+        style="flex:1; min-width:240px; padding:11px 13px; border-radius:10px; border:1px solid var(--line);
+        background:var(--panel); color:var(--ink); font-size:14px; font-family:inherit" />
+      <button class="cta" id="auditBtn" style="border:none; cursor:pointer">Audit</button>
+    </div>
+    <div style="margin:6px 0 10px; font-size:12.5px" class="muted">
+      Try:
+      <a href="#" data-r="onnx-community/Llama-3.2-1B-Instruct">Llama-3.2-1B</a> ·
+      <a href="#" data-r="onnx-community/Qwen3-0.6B-ONNX">Qwen3-0.6B</a> ·
+      <a href="#" data-r="HuggingFaceTB/SmolLM2-1.7B-Instruct">SmolLM2-1.7B</a> ·
+      <a href="#" data-r="onnx-community/gemma-3-1b-it-ONNX">gemma-3-1b</a>
+    </div>
+    <div id="auditOut" style="min-height:8px"></div>
+  </section>
+
+  <section>
     <h2>Why this happens — and why it's avoidable</h2>
     <p>Language is <b>heavy-tailed</b> (Zipf) and its vocabulary grows <b>sublinearly</b> with length
       (Heaps' law — we measure β≈0.75, R²=0.996 on 714k real tokens). So a whole conversation only ever
@@ -132,6 +153,54 @@ DATA.forEach((d,i)=>{
 requestAnimationFrame(()=>{
   document.querySelectorAll(".bar > i").forEach(el=>{ el.style.width=el.dataset.w+"%"; });
 });
+
+// ---- live "audit any model" tool (all client-side; fetches straight from Hugging Face) ----
+const HF="https://huggingface.co/";
+async function sizeOf(url){ // total bytes via Range 0-0 -> Content-Range, else content-length
+  try{
+    const r=await fetch(url,{headers:{Range:"bytes=0-0"}});
+    const cr=r.headers.get("content-range");
+    if(cr&&cr.includes("/")) return parseInt(cr.split("/").pop(),10);
+    const cl=r.headers.get("content-length"); return cl?parseInt(cl,10):0;
+  }catch(e){ return 0; }
+}
+async function audit(repo){
+  const out=document.getElementById("auditOut");
+  repo=repo.trim().replace(/^https?:\/\/huggingface\.co\//,"").replace(/\/$/,"");
+  if(!repo){ out.innerHTML=""; return; }
+  out.innerHTML=`<div class="muted" style="font-size:14px">Auditing <b>${repo}</b>…</div>`;
+  try{
+    const cfg=await (await fetch(HF+repo+"/resolve/main/config.json")).json();
+    const vocab=cfg.vocab_size, hidden=cfg.hidden_size, tied=cfg.tie_word_embeddings;
+    if(!vocab||!hidden){ throw new Error("no vocab_size/hidden_size in config.json"); }
+    const base=HF+repo+"/resolve/main/onnx/model_q4f16.onnx";
+    let graph=await sizeOf(base), data=await sizeOf(base+"_data");
+    const total=data?graph+data:graph;
+    if(!total){ throw new Error("couldn't read onnx/model_q4f16.onnx size (does this repo have that file?)"); }
+    const embBytes=vocab*hidden*2; // assumes fp16 embedding (the common case for q4f16 exports)
+    const pct=Math.min(99,100*embBytes/total);
+    const col=pct>=50?"var(--hot)":pct>=33?"var(--warm)":"var(--good)";
+    out.innerHTML=`<div class="row" style="grid-template-columns:1fr 64px; margin-top:4px">
+        <div class="bar"><i style="width:0;background:${col}"></i></div>
+        <div class="pct" style="color:${col}">${pct.toFixed(1)}%</div></div>
+      <div class="muted" style="font-size:13px">
+        <b>${repo}</b> — vocab ${vocab.toLocaleString()} × hidden ${hidden} ⇒ embedding ≈
+        ${(embBytes/1e6).toFixed(0)} MB of a ${(total/1e6).toFixed(0)} MB download.
+        Output head: <b>${tied?"tied":"separate"}</b>.
+        <i>Estimate assumes an fp16 embedding (typical for q4f16 exports); quantized-embedding models
+        will be lower.</i></div>`;
+    requestAnimationFrame(()=>{ out.querySelector("i").style.width=pct+"%"; });
+  }catch(e){
+    out.innerHTML=`<div class="note" style="border-left-color:var(--hot)">Couldn't audit
+      <b>${repo}</b>: ${e.message}. Needs a public HF repo with <code>config.json</code> and
+      <code>onnx/model_q4f16.onnx</code>.</div>`;
+  }
+}
+document.getElementById("auditBtn").addEventListener("click",()=>audit(document.getElementById("repo").value));
+document.getElementById("repo").addEventListener("keydown",e=>{ if(e.key==="Enter") audit(e.target.value); });
+document.querySelectorAll("[data-r]").forEach(a=>a.addEventListener("click",e=>{
+  e.preventDefault(); const r=a.dataset.r; document.getElementById("repo").value=r; audit(r);
+}));
 </script>
 </body>
 </html>
