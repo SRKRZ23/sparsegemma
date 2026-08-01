@@ -289,7 +289,10 @@ async function send() {
     const tokenized = await tokenizer(prompt, { return_tensor: false });
     console.log("[debug] tokenized:", JSON.stringify(tokenized).slice(0, 500));
     const { input_ids } = tokenized;
-    const promptTokenIds = Array.isArray(input_ids[0]) ? input_ids[0] : input_ids;
+    const rawIds = Array.isArray(input_ids[0]) ? input_ids[0] : input_ids;
+    const BOS_ID = 2; // tokenizer_config.json: add_bos_token is unset, so raw tokenizer() calls
+    // don't prepend <bos> automatically — Gemma models expect every sequence to start with it.
+    const promptTokenIds = rawIds[0] === BOS_ID ? rawIds : [BOS_ID, ...rawIds];
     console.log("[debug] promptTokenIds:", JSON.stringify(promptTokenIds));
     const full = await generate(promptTokenIds);
     history.push({ role: "assistant", content: full });
