@@ -6,7 +6,12 @@ import {
   AutoProcessor,
   Gemma4ForConditionalGeneration,
   TextStreamer,
+  env,
 } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/+esm";
+
+// Cache the downloaded model weights in the browser (Cache Storage) so the ~290MB
+// download only ever happens once per device, not on every visit.
+env.useBrowserCache = true;
 
 const MODEL_ID = "onnx-community/gemma-4-E2B-it-ONNX";
 
@@ -39,17 +44,28 @@ answers concise (under 180 words). Never ask for or reference real identifying p
 let model, processor;
 let history = [{ role: "system", content: SYSTEM_PROMPT }];
 
+// Aggregate progress across every file being fetched (embed_tokens + decoder, etc.) into
+// one honest overall percentage + a running MB counter, instead of one bar per file
+// (which looks like it "resets" every time a new file starts).
+const filesLoading = new Map();
+function onProgress(info) {
+  if (info.status !== "progress" && info.status !== "done") return;
+  if (info.total) filesLoading.set(info.file, { loaded: info.loaded, total: info.total });
+  let loaded = 0, total = 0;
+  for (const f of filesLoading.values()) { loaded += f.loaded; total += f.total; }
+  if (!total) return;
+  const pct = Math.min(100, (loaded / total) * 100);
+  loadfill.style.width = `${pct.toFixed(1)}%`;
+  statusEl.textContent = `loading model… ${(loaded / 1e6).toFixed(0)}MB / ${(total / 1e6).toFixed(0)}MB`;
+}
+
 async function init() {
   try {
     processor = await AutoProcessor.from_pretrained(MODEL_ID);
     model = await Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID, {
       dtype: "q4f16",
       device: "webgpu",
-      progress_callback: (info) => {
-        if (info.status === "progress" && info.progress != null) {
-          loadfill.style.width = `${Math.round(info.progress)}%`;
-        }
-      },
+      progress_callback: onProgress,
     });
     statusEl.textContent = "ready — 100% on-device";
     statusEl.classList.remove("off");
