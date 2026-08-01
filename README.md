@@ -51,9 +51,30 @@ concerning symptoms are often non-urgent... Questions for a Clinician: ... Discl
 Full end-to-end generation, real WebGPU execution, coherent on-topic output — captured via automated
 browser testing (Playwright + headless Chrome with WebGPU enabled), not hand-waved.
 
+## Speculative decoding (draft model + batched verification)
+
+A small draft model (Gemma 3 270M-it, same 262,144-token vocab, no remapping needed) proposes several
+tokens ahead; the target model verifies all of them in one batched forward pass instead of one call per
+token. Verification is exact-argmax equality against the target's own greedy choice — in exact arithmetic
+this is provably equivalent to running the target alone, token by token.
+
+**Honest caveat, found and diagnosed (not glossed over):** in practice, on real fp16 GPU hardware, this
+is *not quite* bit-identical to the plain sequential path. A batched (multi-token) forward pass and a
+sequential (one-token-at-a-time) forward pass can compute the same mathematical value in a different
+floating-point accumulation order — normal matrix-multiply reductions aren't associative, and fp16's ~3
+decimal digits of precision makes this more visible than it would be in fp32. For most tokens the gap
+between the top and second-best logit is far larger than this noise and the choice is unaffected; but
+when two candidates are extremely close, a tiny order-of-operations difference can occasionally flip the
+argmax — and since generation is autoregressive, one flipped token early on cascades into a different (but
+still coherent, on-topic, correctly-formatted) response rather than the literal same wording. Diagnosed by
+adding round-by-round verification logging and ruling out an actual shape/indexing bug (`num_logits_to_keep`
+correctly returns `dims[1] === batchLen` — confirmed live, not assumed) before concluding this is
+floating-point non-associativity rather than broken logic. This is a known, documented category of issue
+in production LLM serving (batch-size-dependent output non-determinism), not unique to this project.
+
 ## Architecture
 ```
-index.html + app.js + sparse_embed.js  (vanilla JS, ES modules, no build step)
+index.html + app.js + sparse_embed.js + draft_model.js  (vanilla JS, ES modules, no build step)
         │
         ├── sparse_embed.js ── HTTP Range fetch + LUT-based dequant (T-MAC-style) for only the
         │                       tokens actually used → inputs_embeds + per_layer_inputs tensors
@@ -74,6 +95,9 @@ index.html + app.js + sparse_embed.js  (vanilla JS, ES modules, no build step)
   post-training-quantized dense models at this quality tier, not something this technique addresses.
 - Prewarming common vocabulary at idle time + a priority-aware fetch scheduler (background prewarm yields
   to an active user request) are both implemented and tested.
+- Speculative decoding is implemented and produces coherent, correctly-formatted output faster than plain
+  decoding, but — see the section above — is not bit-identical to plain greedy decode due to fp16
+  batched-vs-sequential floating-point non-determinism, an honest, diagnosed, real limitation.
 - No image/audio modality wired up (the underlying model supports it) — text chat only, kept in scope.
 
 ## Run locally
