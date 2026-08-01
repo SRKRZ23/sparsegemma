@@ -1,22 +1,28 @@
 # SparseGemma — token-sparse embedding loading for on-device LLMs
 
-**31–56% of every popular browser LLM's download is an embedding table where a conversation reads under
-0.3% of the rows.** SparseGemma fetches only the byte ranges for the tokens actually used — cutting the
-embedding download from hundreds of MB / GB to a few hundred KB, with zero quality loss (byte-identical
-output, verified against the models' own weights), and it **provably generalizes across the ecosystem**.
+> **31–56% of every popular browser LLM's download is an embedding table where a conversation reads under
+> 0.3% of the rows.** SparseGemma fetches only the byte ranges for the tokens actually used — cutting the
+> embedding download from hundreds of MB / GB to a few hundred KB, with zero quality loss (byte-identical
+> output, verified against the models' own weights), and it **provably generalizes across the ecosystem**.
 
-Measured across the most-downloaded browser LLMs (`research/GENERALIZATION.md`):
+### 🔗 [**Live demo**](https://sparsegemma.netlify.app) · [**📊 The Browser-LLM Waste Report** (interactive — audit any model)](https://sparsegemma.netlify.app/waste-report.html) · [**Research & proofs**](research/) · [**Upstream RFC**](research/UPSTREAM_PROPOSAL.md)
+
+[![The Browser-LLM Waste Report](research/assets/waste_report.png)](https://sparsegemma.netlify.app/waste-report.html)
+
+Measured across 11 of the most-downloaded browser LLMs (`research/GENERALIZATION.md`,
+`research/leaderboard.json` — **average 38.5%, up to 56.4%**):
 
 | Model | Embedding = % of download | | Model | Embedding = % of download |
 |---|---|---|---|---|
-| Qwen2.5-0.5B | **56.4%** (272 MB, fp16!) | | Gemma-3-270M | 30.8% (84 MB) |
-| SmolLM2-360M | 34.6% (94 MB) | | Gemma-4-E2B | ~51% (1.59 GB) |
+| Qwen2.5-0.5B | **56.4%** (272 MB, fp16!) | | Llama-3.2-1B | 48.2% (525 MB) |
+| Qwen3-0.6B | 54.6% (311 MB) | | SmolLM2-360M | 34.6% (94 MB) |
+| Qwen2.5-Coder-0.5B | 49.1% (272 MB) | | Gemma-4-E2B | ~51% (1.59 GB) |
 
 This is not a hack on one model — it's a fix for a **systematic inefficiency across the whole browser-LLM
 ecosystem**, demonstrated end-to-end on the hardest case (Gemma-4-E2B's 1.59 GB table) and proven
 range-fetchable on both ONNX storage layouts (external-data blob *and* inline single-file — Qwen's inline
 fp16 embedding offset located and byte-for-byte verified). Full rigor, measurements, proofs, and the
-theory (Heaps β=0.74 sublinearity, Zipf/LRU locality, and the novel draft-model-as-prefetch-oracle
+theory (Heaps β=0.75 sublinearity, Zipf/LRU locality, and the novel draft-model-as-prefetch-oracle
 theorem) are in [`research/`](research/).
 
 ## The invention
@@ -85,6 +91,29 @@ adding round-by-round verification logging and ruling out an actual shape/indexi
 correctly returns `dims[1] === batchLen` — confirmed live, not assumed) before concluding this is
 floating-point non-associativity rather than broken logic. This is a known, documented category of issue
 in production LLM serving (batch-size-dependent output non-determinism), not unique to this project.
+
+## Measurements — all real, all reproducible
+
+Measured on a 62-document / 714k-token corpus tokenized with the exact Gemma tokenizer. Full theory,
+proofs, and an honesty ledger in [`research/THEORY.md`](research/THEORY.md); regenerate with
+[`research/measure.py`](research/measure.py) + [`research/plots.py`](research/plots.py).
+
+| | |
+|---|---|
+| ![Heaps' law](research/figures/fig1_heaps.png) | ![Zipf](research/figures/fig2_zipf.png) |
+| **Heaps' law** — the embedding working set grows *sublinearly* (per-document β = **0.746 ± 0.041**, R²=0.996). A conversation's distinct tokens ≪ vocabulary. | **Zipf–Mandelbrot** — token frequencies are heavy-tailed (s = **1.146**); a tiny cache captures most reuse. |
+
+![LRU cache: Che validated vs IRM, real beats IRM by +0.17 locality](research/figures/fig3_lru_locality.png)
+
+**Cache theory validated + a bonus finding.** The classical Che approximation reproduces an IRM-shuffled
+control to ≤0.004 (proving the implementation) — and the *real* ordered stream beats it by a stable
+**+0.17 hit rate**, genuine temporal locality LRU exploits. A **256-row (~1.5 MB) cache already hits 61%**.
+
+**The one novel theorem (draft model = free prefetch oracle).** The small draft model already run for
+speculative decoding produces, at zero extra compute, a next-token distribution. For greedy decoding the
+top-1 prefetch cold-miss rate is *exactly* `1 − (speculative-decoding acceptance rate)` — one measured
+scalar (β_acc ≈ 0.40) ties the latency technique and the bandwidth technique together. Proof in
+[`research/THEORY.md`](research/THEORY.md), §3.
 
 ## Architecture
 ```
