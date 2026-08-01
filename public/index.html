@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PocketTriage — private, on-device health navigation (Gemma 4)</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: #0b1220; color: #e8edf5; min-height: 100vh; display: flex; flex-direction: column;
+  }
+  header { padding: 20px 24px 8px; border-bottom: 1px solid #1c2740; }
+  header h1 { margin: 0 0 4px; font-size: 20px; }
+  header p { margin: 0; color: #9db0cc; font-size: 13px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; margin-left: 8px; }
+  .badge.on { background: #113a24; color: #7be0a0; }
+  .badge.off { background: #3a1414; color: #ff9a9a; }
+  .banner {
+    margin: 12px 24px 0; padding: 10px 14px; background: #241a04; border: 1px solid #4a3a10;
+    border-radius: 8px; font-size: 12.5px; color: #f0d98a; line-height: 1.5;
+  }
+  main { flex: 1; overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 720px; padding: 10px 14px; border-radius: 10px; line-height: 1.55; font-size: 14.5px; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: #1a3a5c; }
+  .msg.bot { align-self: flex-start; background: #182238; border: 1px solid #22304d; }
+  .msg.sys { align-self: center; color: #7c8aa8; font-size: 12px; font-style: italic; }
+  footer { padding: 14px 24px 20px; border-top: 1px solid #1c2740; display: flex; gap: 10px; }
+  textarea {
+    flex: 1; resize: none; height: 52px; background: #101a2e; color: #e8edf5; border: 1px solid #22304d;
+    border-radius: 8px; padding: 10px 12px; font-size: 14px; font-family: inherit;
+  }
+  button {
+    padding: 0 20px; border: none; border-radius: 8px; background: #2f6feb; color: white; font-weight: 600;
+    cursor: pointer; font-size: 14px;
+  }
+  button:disabled { background: #2a3550; cursor: not-allowed; color: #7c8aa8; }
+  #loadbar { height: 4px; background: #101a2e; }
+  #loadbar > div { height: 100%; background: #2f6feb; width: 0%; transition: width .2s; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PocketTriage <span id="status" class="badge off">loading model…</span></h1>
+  <p>A private, fully on-device health-navigation companion — built on Gemma 4 (E2B), running entirely in this browser via WebGPU. Nothing you type ever leaves this device.</p>
+</header>
+<div id="loadbar"><div id="loadfill"></div></div>
+<div class="banner">
+  ⚠️ Decision-support &amp; education only — this is <b>not</b> a diagnosis and does not replace a clinician.
+  It helps you understand general urgency language (like the levels hospitals use) and what to ask a doctor.
+  In an emergency, call your local emergency number immediately. Do not enter real personal health information —
+  use general descriptions only.
+</div>
+<main id="chat"></main>
+<footer>
+  <textarea id="input" placeholder="Describe how you're feeling in general terms… (e.g. 'mild headache for 2 days, no other symptoms')"></textarea>
+  <button id="send" disabled>Send</button>
+</footer>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
