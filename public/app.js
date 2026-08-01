@@ -6,7 +6,7 @@ import {
   AutoProcessor,
   Gemma4ForConditionalGeneration,
   TextStreamer,
-} from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3/+esm";
+} from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/+esm";
 
 const MODEL_ID = "onnx-community/gemma-4-E2B-it-ONNX";
 
