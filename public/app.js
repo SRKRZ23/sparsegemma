@@ -11,6 +11,7 @@
 import { AutoTokenizer } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/+esm";
 import * as ort from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0-dev.20260416-b7804b056c/dist/ort.webgpu.min.mjs";
 import { embedTokensSparse, DIMS } from "./sparse_embed.js";
+import { loadDraftModel, draftTokens } from "./draft_model.js";
 
 const MODEL_ID = "onnx-community/gemma-4-E2B-it-ONNX";
 const DECODER_URL =
@@ -53,6 +54,7 @@ severe (chest pain, difficulty breathing, stroke signs, severe bleeding, loss of
 answers concise (under 180 words). Never ask for or reference real identifying personal information.`;
 
 let tokenizer, session;
+let draftReady = false;
 let history = [{ role: "system", content: SYSTEM_PROMPT }];
 
 function fp16ToFloat32(h) {
@@ -172,6 +174,18 @@ async function init() {
     addMsg("sys", "Ready. Embeddings for each token you use are fetched individually (a few KB each) instead of downloading the full 1.59GB embedding table.");
 
     prewarmCommonVocab(); // idle-time background prefetch, never blocks the UI
+
+    // Load the speculative-decoding draft model (Gemma 3 270M-it, ~273MB) in the background —
+    // the app is fully usable (plain greedy decode) without it; when it finishes, generation
+    // switches to the faster draft-then-verify path automatically.
+    loadDraftModel((n, t) => {
+      if (t) statusEl.title = `loading speculative draft model… ${(n / 1e6).toFixed(0)}MB / ${(t / 1e6).toFixed(0)}MB`;
+    }).then(() => {
+      draftReady = true;
+      addMsg("sys", "Speculative decoding ready (draft model: Gemma 3 270M) — generation should now be faster.");
+    }).catch((err) => {
+      console.warn("[draft] failed to load, falling back to plain greedy decode:", err?.message || err);
+    });
   } catch (err) {
     statusEl.textContent = "failed to load (needs a WebGPU browser, e.g. recent Chrome/Edge)";
     addMsg("sys", `Load error: ${err?.message || err}`);
@@ -248,6 +262,136 @@ async function generate(promptTokenIds, maxNewTokens = 220) {
   return generated.length ? tokenizer.decode(generated, { skip_special_tokens: true }) : "(model produced no tokens — see console for top5 logits)";
 }
 
+// Slice a KV-cache tensor along the sequence axis, keeping only the first `keepLen` positions.
+// Safe because this model uses multi-query attention (1 KV head) and batch=1, so a tensor of
+// dims [1,1,seqLen,dim] is just `seqLen` contiguous blocks of `dim` values — a plain typed-array
+// slice, no reshaping/striding math needed.
+function sliceKV(tensor, keepLen, dim) {
+  const data = tensor.data.slice(0, keepLen * dim);
+  return new ort.Tensor(tensor.type, data, [1, 1, keepLen, dim]);
+}
+
+function argmaxAt(logitsTensor, position, vocabSize) {
+  const offset = position * vocabSize;
+  const data = logitsTensor.data;
+  let bestIdx = 0, bestVal = -Infinity;
+  for (let v = 0; v < vocabSize; v++) {
+    if (data[offset + v] > bestVal) { bestVal = data[offset + v]; bestIdx = v; }
+  }
+  return bestIdx;
+}
+
+// Speculative decoding: a small draft model (Gemma 3 270M) proposes several tokens ahead; the
+// target model (Gemma 4 E2B) verifies all of them in ONE forward pass instead of one-per-token.
+// Verification is exact greedy-argmax equality (not the full stochastic rejection-sampling
+// scheme from Leviathan et al. — that variant is for matching a SAMPLING distribution; ours is
+// plain greedy decoding, so exact-match verification is both correct and simpler: it provably
+// produces the identical token sequence plain greedy decoding would, just potentially faster).
+const SPEC_K = 4; // 1 known-good "seed" token (priorGuess) + up to 3 genuinely speculative ones
+
+async function generateSpeculative(promptTokenIds, maxNewTokens = 220) {
+  const eosIds = new Set([1, 106, 50]);
+  let allTokenIds = [...promptTokenIds];
+  let generated = [];
+
+  // --- initial prompt forward pass (same as plain generate()) — gives us pastKV + priorGuess ---
+  let { inputsEmbeds, perLayerInputs } = await embedTokensSparse(allTokenIds);
+  let seqLen = allTokenIds.length;
+  let output = await session.run({
+    inputs_embeds: new ort.Tensor("float32", inputsEmbeds, [1, seqLen, DIMS.MAIN_DIM]),
+    per_layer_inputs: new ort.Tensor("float32", perLayerInputs, [1, seqLen, DIMS.NUM_LAYERS, DIMS.PLE_LAYER_DIM]),
+    attention_mask: new ort.Tensor("int64", BigInt64Array.from(Array(seqLen).fill(1n)), [1, seqLen]),
+    position_ids: new ort.Tensor("int64", BigInt64Array.from(Array.from({ length: seqLen }, (_, i) => BigInt(i))), [1, seqLen]),
+    num_logits_to_keep: new ort.Tensor("int64", BigInt64Array.from([1n]), []),
+    ...emptyKV(),
+  });
+  let pastKV = {};
+  for (let i = 0; i < NUM_DECODER_LAYERS; i++) {
+    pastKV[`past_key_values.${i}.key`] = output[`present.${i}.key`];
+    pastKV[`past_key_values.${i}.value`] = output[`present.${i}.value`];
+  }
+  let priorGuess = argmaxAt(output.logits, 0, output.logits.dims[2]);
+
+  while (generated.length < maxNewTokens) {
+    if (eosIds.has(priorGuess)) break;
+
+    const speculative = await draftTokens([...allTokenIds, priorGuess], SPEC_K - 1, eosIds);
+    const batchTokens = [priorGuess, ...speculative]; // length 1..SPEC_K
+    const batchLen = batchTokens.length;
+
+    const emb = await embedTokensSparse(batchTokens);
+    const verifyOut = await session.run({
+      inputs_embeds: new ort.Tensor("float32", emb.inputsEmbeds, [1, batchLen, DIMS.MAIN_DIM]),
+      per_layer_inputs: new ort.Tensor("float32", emb.perLayerInputs, [1, batchLen, DIMS.NUM_LAYERS, DIMS.PLE_LAYER_DIM]),
+      attention_mask: new ort.Tensor("int64", BigInt64Array.from(Array(seqLen + batchLen).fill(1n)), [1, seqLen + batchLen]),
+      position_ids: new ort.Tensor("int64", BigInt64Array.from(Array.from({ length: batchLen }, (_, i) => BigInt(seqLen + i))), [1, batchLen]),
+      num_logits_to_keep: new ort.Tensor("int64", BigInt64Array.from([BigInt(batchLen)]), []),
+      ...pastKV,
+    });
+    const vocabSize = verifyOut.logits.dims[2];
+
+    let firstFailAt = null; // index into [0, batchLen-2] of the first wrong speculative token
+    for (let i = 0; i < batchLen - 1; i++) {
+      if (argmaxAt(verifyOut.logits, i, vocabSize) !== batchTokens[i + 1]) { firstFailAt = i; break; }
+    }
+
+    let acceptedCount, kvKeepLen;
+    if (firstFailAt === null) {
+      // every speculative token was right — accept all of them, plus a free bonus prediction
+      acceptedCount = batchLen;
+      kvKeepLen = seqLen + batchLen;
+      generated.push(...batchTokens);
+      allTokenIds.push(...batchTokens);
+      priorGuess = argmaxAt(verifyOut.logits, batchLen - 1, vocabSize);
+      pastKV = {};
+      for (let i = 0; i < NUM_DECODER_LAYERS; i++) {
+        pastKV[`past_key_values.${i}.key`] = verifyOut[`present.${i}.key`];
+        pastKV[`past_key_values.${i}.value`] = verifyOut[`present.${i}.value`];
+      }
+    } else {
+      // accept the confirmed prefix, replace the wrong token with the target's own correction
+      const accepted = batchTokens.slice(0, firstFailAt + 1);
+      const corrected = argmaxAt(verifyOut.logits, firstFailAt, vocabSize);
+      generated.push(...accepted, corrected);
+      allTokenIds.push(...accepted, corrected);
+      kvKeepLen = seqLen + firstFailAt + 1; // trim off the rejected tail
+      const trimmedKV = {};
+      for (let i = 0; i < NUM_DECODER_LAYERS; i++) {
+        trimmedKV[`past_key_values.${i}.key`] = sliceKV(verifyOut[`present.${i}.key`], kvKeepLen, KV_DIM(i));
+        trimmedKV[`past_key_values.${i}.value`] = sliceKV(verifyOut[`present.${i}.value`], kvKeepLen, KV_DIM(i));
+      }
+      // one normal single-token step for `corrected`, to get both a fresh priorGuess and a KV
+      // cache that actually reflects it (the batch above didn't compute anything meaningful past
+      // the rejection point, since it used the WRONG token as context beyond firstFailAt).
+      const correctedEmb = await embedTokensSparse([corrected]);
+      const correctionOut = await session.run({
+        inputs_embeds: new ort.Tensor("float32", correctedEmb.inputsEmbeds, [1, 1, DIMS.MAIN_DIM]),
+        per_layer_inputs: new ort.Tensor("float32", correctedEmb.perLayerInputs, [1, 1, DIMS.NUM_LAYERS, DIMS.PLE_LAYER_DIM]),
+        attention_mask: new ort.Tensor("int64", BigInt64Array.from(Array(kvKeepLen + 1).fill(1n)), [1, kvKeepLen + 1]),
+        position_ids: new ort.Tensor("int64", BigInt64Array.from([BigInt(kvKeepLen)]), [1, 1]),
+        num_logits_to_keep: new ort.Tensor("int64", BigInt64Array.from([1n]), []),
+        ...trimmedKV,
+      });
+      priorGuess = argmaxAt(correctionOut.logits, 0, correctionOut.logits.dims[2]);
+      pastKV = {};
+      for (let i = 0; i < NUM_DECODER_LAYERS; i++) {
+        pastKV[`past_key_values.${i}.key`] = correctionOut[`present.${i}.key`];
+        pastKV[`past_key_values.${i}.value`] = correctionOut[`present.${i}.value`];
+      }
+      kvKeepLen += 1;
+    }
+    seqLen = kvKeepLen;
+
+    const partial = generated.length ? tokenizer.decode(generated, { skip_special_tokens: true }) : "";
+    onToken(partial);
+    if (generated.some((t) => eosIds.has(t))) break;
+  }
+
+  // strip any trailing EOS-family tokens that slipped into `generated` before the loop noticed
+  const clean = generated.filter((t) => !eosIds.has(t));
+  return clean.length ? tokenizer.decode(clean, { skip_special_tokens: true }) : "(model produced no tokens)";
+}
+
 let onToken = () => {};
 
 async function send() {
@@ -271,7 +415,7 @@ async function send() {
     const BOS_ID = 2; // tokenizer_config.json: add_bos_token is unset, so raw tokenizer() calls
     // don't prepend <bos> automatically — Gemma models expect every sequence to start with it.
     const promptTokenIds = rawIds[0] === BOS_ID ? rawIds : [BOS_ID, ...rawIds];
-    const full = await generate(promptTokenIds);
+    const full = draftReady ? await generateSpeculative(promptTokenIds) : await generate(promptTokenIds);
     history.push({ role: "assistant", content: full });
   } catch (err) {
     botDiv.textContent = `(generation error: ${err?.message || err})`;
