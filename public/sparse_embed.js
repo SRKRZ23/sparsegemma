@@ -181,8 +181,6 @@ export async function embedTokensSparse(tokenIds, { priority = "high" } = {}) {
   const cache = new Map();
   const CONCURRENCY = 24; // stay well under typical browser per-host connection limits
   let idx = 0;
-  let done = 0;
-  const t0 = Date.now();
   async function worker() {
     while (idx < unique.length) {
       if (priority === "low") {
@@ -190,13 +188,8 @@ export async function embedTokensSparse(tokenIds, { priority = "high" } = {}) {
       }
       const t = unique[idx++];
       cache.set(t, await fetchTokenEmbedding(t));
-      done++;
-      if (done % 25 === 0 || done === unique.length) {
-        console.log(`[sparse_embed] ${done}/${unique.length} tokens fetched, ${Date.now() - t0}ms elapsed`);
-      }
     }
   }
-  console.log(`[sparse_embed] starting fetch for ${unique.length} unique tokens (concurrency=${CONCURRENCY}, priority=${priority})`);
   try {
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, unique.length) }, worker));
   } finally {

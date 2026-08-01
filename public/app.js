@@ -210,36 +210,17 @@ async function generate(promptTokenIds, maxNewTokens = 220) {
   };
 
   const eosIds = new Set([1, 106, 50]); // from generation_config.json's eos_token_id list
-  console.log("[debug] starting generation loop, seqLen=", seqLen);
   for (let step = 0; step < maxNewTokens; step++) {
-    const t0 = performance.now();
     const output = await session.run(feeds);
-    console.log(`[debug] step ${step}: session.run took ${(performance.now() - t0).toFixed(0)}ms, output keys:`, Object.keys(output));
-    const logitsTensor = output.logits; // [1, 1, vocab] float16
-    const vocabSize = logitsTensor.dims[2];
-    // logitsTensor.data is a native Float16Array here — already real decoded float values, NOT
-    // raw fp16 bit patterns. (Confirmed via diagnostic: values like -12.43/13.42/2.76 are sane
-    // transformer logit magnitudes, not raw uint16 — running fp16ToFloat32 on these AGAIN was
-    // the actual bug: it reinterpreted an already-correct float as if it were a bit pattern,
-    // producing near-zero garbage. fp16ToFloat32 is still needed for sparse_embed.js's raw
-    // Uint8Array-backed scale bytes, which really are raw bits — just not here.)
+    const logitsTensor = output.logits; // [1, 1, vocab]
+    // logitsTensor.data is a native Float16Array — already real decoded float values, not raw fp16
+    // bit patterns (verified: values like -12.43/13.42 are sane transformer logit magnitudes).
     const logits = logitsTensor.data;
-    const top5 = [];
-    for (let v = 0; v < vocabSize; v++) {
-      const val = logits[v];
-      top5.push([v, val]);
-      if (top5.length > 5) {
-        top5.sort((a, b) => b[1] - a[1]);
-        top5.length = 5;
-      }
+    let bestIdx = 0, bestVal = -Infinity;
+    for (let v = 0; v < logits.length; v++) {
+      if (logits[v] > bestVal) { bestVal = logits[v]; bestIdx = v; }
     }
-    top5.sort((a, b) => b[1] - a[1]);
-    console.log(`[debug] step ${step}: top5 (id,val)=`, JSON.stringify(top5));
-    let bestIdx = top5[0][0], bestVal = top5[0][1];
-    if (eosIds.has(bestIdx)) {
-      console.log(`[debug] step ${step}: predicted EOS as top choice — stopping. generated so far:`, generated.length);
-      break;
-    }
+    if (eosIds.has(bestIdx)) break;
     generated.push(bestIdx);
     allTokenIds.push(bestIdx);
 
@@ -285,15 +266,11 @@ async function send() {
 
   try {
     const prompt = buildChatPrompt(history);
-    console.log("[debug] prompt:", JSON.stringify(prompt));
-    const tokenized = await tokenizer(prompt, { return_tensor: false });
-    console.log("[debug] tokenized:", JSON.stringify(tokenized).slice(0, 500));
-    const { input_ids } = tokenized;
+    const { input_ids } = await tokenizer(prompt, { return_tensor: false });
     const rawIds = Array.isArray(input_ids[0]) ? input_ids[0] : input_ids;
     const BOS_ID = 2; // tokenizer_config.json: add_bos_token is unset, so raw tokenizer() calls
     // don't prepend <bos> automatically — Gemma models expect every sequence to start with it.
     const promptTokenIds = rawIds[0] === BOS_ID ? rawIds : [BOS_ID, ...rawIds];
-    console.log("[debug] promptTokenIds:", JSON.stringify(promptTokenIds));
     const full = await generate(promptTokenIds);
     history.push({ role: "assistant", content: full });
   } catch (err) {
