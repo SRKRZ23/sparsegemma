@@ -218,7 +218,10 @@ async function generate(promptTokenIds, maxNewTokens = 220) {
     const logitsTensor = output.logits; // [1, 1, vocab] float16
     console.log(`[debug] logits dims:`, logitsTensor?.dims, "type:", logitsTensor?.type);
     const vocabSize = logitsTensor.dims[2];
-    const logitsU16 = logitsTensor.data; // Uint16Array raw fp16 bits
+    const logitsU16 = logitsTensor.data; // Uint16Array raw fp16 bits (assumed — verifying below)
+    if (step === 0) {
+      console.log(`[debug] logitsU16 constructor:`, logitsU16?.constructor?.name, "raw first 5 values:", Array.from(logitsU16.slice(0, 5)));
+    }
     // top-5 (not just argmax) so we can tell a peaked/confident distribution from a flat/broken one
     const top5 = [];
     for (let v = 0; v < vocabSize; v++) {
