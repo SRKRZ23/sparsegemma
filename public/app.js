@@ -330,10 +330,16 @@ async function generateSpeculative(promptTokenIds, maxNewTokens = 220) {
       ...pastKV,
     });
     const vocabSize = verifyOut.logits.dims[2];
+    console.log(`[spec] batchTokens=${JSON.stringify(batchTokens)} logits.dims=${JSON.stringify(verifyOut.logits.dims)} (expect dims[1]===${batchLen})`);
+    if (verifyOut.logits.dims[1] !== batchLen) {
+      console.error(`[spec] BUG CONFIRMED: num_logits_to_keep=${batchLen} did not return ${batchLen} positions — got dims[1]=${verifyOut.logits.dims[1]} instead. Reading positions beyond this reads garbage.`);
+    }
 
     let firstFailAt = null; // index into [0, batchLen-2] of the first wrong speculative token
     for (let i = 0; i < batchLen - 1; i++) {
-      if (argmaxAt(verifyOut.logits, i, vocabSize) !== batchTokens[i + 1]) { firstFailAt = i; break; }
+      const predicted = argmaxAt(verifyOut.logits, i, vocabSize);
+      console.log(`[spec] verify i=${i}: target predicts ${predicted}, draft proposed ${batchTokens[i + 1]} → ${predicted === batchTokens[i + 1] ? "MATCH" : "MISMATCH"}`);
+      if (predicted !== batchTokens[i + 1]) { firstFailAt = i; break; }
     }
 
     let acceptedCount, kvKeepLen;
