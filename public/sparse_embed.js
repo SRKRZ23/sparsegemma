@@ -165,9 +165,18 @@ async function fetchTokenEmbedding(tokenId) {
   return { mainEmb, perLayerFlat };
 }
 
+// Priority scheduling: the idle-time vocabulary prewarm and a real user message can fire near-
+// simultaneously (observed in testing — both raced for the same 24-slot pool, roughly doubling
+// wall-clock time for the user's actual request). Real requests set this flag; background/low-
+// priority callers (prewarm) check it and yield between tokens so the user's fetch gets the
+// full connection pool, not half of it.
+export let userRequestActive = false;
+
 // Public API: given an array of token ids (as produced by the tokenizer), fetch/dequantize only
 // the UNIQUE tokens present, then assemble the batch tensors the decoder expects.
-export async function embedTokensSparse(tokenIds) {
+// `priority: "low"` (used by idle-time prewarm) yields to any concurrent priority="high" call.
+export async function embedTokensSparse(tokenIds, { priority = "high" } = {}) {
+  if (priority === "high") userRequestActive = true;
   const unique = [...new Set(tokenIds)];
   const cache = new Map();
   const CONCURRENCY = 24; // stay well under typical browser per-host connection limits
@@ -176,6 +185,9 @@ export async function embedTokensSparse(tokenIds) {
   const t0 = Date.now();
   async function worker() {
     while (idx < unique.length) {
+      if (priority === "low") {
+        while (userRequestActive) await new Promise((r) => setTimeout(r, 50));
+      }
       const t = unique[idx++];
       cache.set(t, await fetchTokenEmbedding(t));
       done++;
@@ -184,8 +196,12 @@ export async function embedTokensSparse(tokenIds) {
       }
     }
   }
-  console.log(`[sparse_embed] starting fetch for ${unique.length} unique tokens (concurrency=${CONCURRENCY})`);
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, unique.length) }, worker));
+  console.log(`[sparse_embed] starting fetch for ${unique.length} unique tokens (concurrency=${CONCURRENCY}, priority=${priority})`);
+  try {
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, unique.length) }, worker));
+  } finally {
+    if (priority === "high") userRequestActive = false;
+  }
   const seqLen = tokenIds.length;
   const inputsEmbeds = new Float32Array(seqLen * MAIN_DIM);
   const perLayerInputs = new Float32Array(seqLen * PLE_DIM_TOTAL);

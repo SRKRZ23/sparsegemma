@@ -112,7 +112,7 @@ async function prewarmCommonVocab() {
     const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 200));
     idle(async () => {
       const t0 = performance.now();
-      const r = await embedTokensSparse(ids);
+      const r = await embedTokensSparse(ids, { priority: "low" });
       console.log(`[prewarm] warmed ${r.uniqueTokens} common tokens (${r.cacheHits} already cached) in ${(performance.now() - t0).toFixed(0)}ms`);
     });
   } catch (err) {
