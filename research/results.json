@@ -1,0 +1,50 @@
+{
+  "n_conversations": 12,
+  "total_tokens": 164281,
+  "heaps_beta_mean": 0.7254882004591491,
+  "heaps_beta_std": 0.06480223954508425,
+  "heaps_beta_pooled": 0.7413636188624255,
+  "heaps_K_pooled": 2.4644916293706842,
+  "heaps_r2_mean": 0.9942961511963088,
+  "zipf_s": 1.0860172532667118,
+  "unique_tokens_total": 17350,
+  "vocab": 262144,
+  "lru": [
+    {
+      "cache": 64,
+      "measured_real": 0.42599570248537566,
+      "irm_shuffled": 0.27616705522854135,
+      "che_approx": 0.2761435580968854
+    },
+    {
+      "cache": 128,
+      "measured_real": 0.5237002453113871,
+      "irm_shuffled": 0.36091818286959537,
+      "che_approx": 0.3611095458143933
+    },
+    {
+      "cache": 256,
+      "measured_real": 0.6080130995063336,
+      "irm_shuffled": 0.44027002513985186,
+      "che_approx": 0.4422023415749475
+    },
+    {
+      "cache": 512,
+      "measured_real": 0.6830248172338859,
+      "irm_shuffled": 0.5188061918298525,
+      "che_approx": 0.5230212337900854
+    },
+    {
+      "cache": 1024,
+      "measured_real": 0.75010500301313,
+      "irm_shuffled": 0.5998685179661677,
+      "che_approx": 0.606186810234272
+    },
+    {
+      "cache": 2048,
+      "measured_real": 0.8055100711585637,
+      "irm_shuffled": 0.686981452511246,
+      "che_approx": 0.6991649485175433
+    }
+  ]
+}

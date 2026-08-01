@@ -1,2 +1,6 @@
 .DS_Store
 .netlify/
+research/corpus/
+research/corpus_wiki/
+research/tokenizer.json
+research/*.log
